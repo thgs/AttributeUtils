@@ -6,6 +6,7 @@ namespace Crell\AttributeUtils;
 
 use function Crell\fp\afilter;
 use function Crell\fp\amap;
+use function Crell\fp\amapWithKeys;
 use function Crell\fp\indexBy;
 use function Crell\fp\method;
 use function Crell\fp\pipe;
@@ -107,21 +108,55 @@ class ReflectionDefinitionBuilder
      */
     public function loadSubAttributes(?object $attribute, \Reflector $reflection): void
     {
-        if ($attribute instanceof HasSubAttributes) {
-            foreach ($attribute->subAttributes() as $type => $callback) {
-                if ($this->isMultivalueAttribute($type)) {
-                    $subs = $this->parser->getInheritedAttributes($reflection, $type);
-                    foreach ($subs as $sub) {
-                        $this->loadSubAttributes($sub, $reflection);
-                    }
-                    $attribute->$callback($subs);
-                } else {
-                    $sub = $this->parser->getInheritedAttribute($reflection, $type);
-                    $this->loadSubAttributes($sub, $reflection);
-                    $attribute->$callback($sub);
-                }
-            }
+        if (!$attribute instanceof HasSubAttributes) {
+            return;
         }
+
+        // $multiValueF = function () use ($reflection, $type, $attribute, $callback) {
+        //     $subs = $this->parser->getInheritedAttributes($reflection, $type);
+        //     pipe($subs, amap(fn ($sub) => $this->loadSubAttributes($sub, $reflection)));
+        //     $attribute->$callback($subs);
+        // };
+
+        $loadSubAttributes = fn ($callback, $type) =>
+            ($this->isMultivalueAttribute($type)
+                ? fn () => pipe(
+                        $this->parser->getInheritedAttributes($reflection, $type),
+                        amap(fn ($sub) => $this->loadSubAttributes($sub, $reflection)),
+                        $attribute->$callback(...)
+                )
+                : fn () => pipe(
+                        $this->parser->getInheritedAttribute($reflection, $type),
+                        fn ($sub) => $this->loadSubAttributes($sub, $reflection),
+                        $attribute->$callback(...),
+                )
+            )()
+        ;
+
+        pipe($attribute->subAttributes(), amapWithKeys($loadSubAttributes));
+
+
+        // if ($attribute instanceof HasSubAttributes) {
+        //     foreach ($attribute->subAttributes() as $type => $callback) {
+        //         if ($this->isMultivalueAttribute($type)) {
+        //             $subs = $this->parser->getInheritedAttributes($reflection, $type);
+        //             // foreach ($subs as $k => &$sub) {
+        //             //     if (!$sub instanceof $type) {
+        //             //         unset($subs[$k]);
+        //             //     }
+        //             // }
+        //             // var_dump(count($subs));
+        //             foreach ($subs as $sub) {
+        //                 $this->loadSubAttributes($sub, $reflection);
+        //             }
+        //             $attribute->$callback($subs);
+        //         } else {
+        //             $sub = $this->parser->getInheritedAttribute($reflection, $type);
+        //             $this->loadSubAttributes($sub, $reflection);
+        //             $attribute->$callback($sub);
+        //         }
+        //     }
+        // }
     }
 
     /**
